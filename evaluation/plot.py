@@ -120,7 +120,11 @@ def ancestry_perf_plot(infile, outfile):
                     )
 
             # xx = np.linspace(0, 1.05 * max(X[:, 0]), 51)
-            xx = np.linspace(0, max(X[:, 0]), 51)
+            try:
+                xx = np.linspace(0, max(X[:, 0]), 51)
+            except Exception as e:
+                print(e) #when values are too large, I think
+                continue
 
             # Note the two quadratic curves are not the same!
             pargs = {}
@@ -170,12 +174,10 @@ def ancestry_perf_smc():
     ancestry_perf_plot(infile="data/ancestry-perf-smc.csv", outfile="ancestry-perf-smc")
 
 
-
-
 with matplotlib.rc_context({"font.size": 7}):
     cli.add_command(ancestry_perf_hudson)
     cli.add_command(ancestry_perf_smc)
 
 if __name__ == "__main__":
-    #ancestry_perf_hudson()
-    ancestry_perf_smc()
+    cli()
+

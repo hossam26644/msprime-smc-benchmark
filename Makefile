@@ -1,5 +1,5 @@
 
-#.PHONY: all setup data figure clean mrproper
+.PHONY: all setup data figure clean mrproper
 
 all: data figure
 
@@ -14,7 +14,8 @@ data:
 
 figure:
 	mkdir -p figures
-	python3 evaluation/plot.py
+	python3 evaluation/plot.py ancestry-perf-hudson
+	python3 evaluation/plot.py ancestry-perf-smc
 
 cleanfigures:
 	rm figures/*
