@@ -285,7 +285,7 @@ def k_vs_time(infile="data/ancestry-perf-varying-k.csv",
 
     if len(df['L'].unique()) != 1:
         raise ValueError("sequence length (L) is not consistent within the dataset")
-    sequence_length = df['N'].unique()[0]
+    sequence_length = df['L'].unique()[0]
 
     # Get unique sample sizes from both datasets
     sample_sizes = sorted(df['num_samples'].unique())
@@ -296,13 +296,23 @@ def k_vs_time(infile="data/ancestry-perf-varying-k.csv",
     # Create the plot
     plt.figure(figsize=(10, 6))
 
-    # Plot data from infile1 with solid lines
+    hudson_data = df[df['k'] == 'Hudson']
+    smc_data = df[df['k'] != 'Hudson']
+
+    smc_data['k'] = smc_data['k'].astype(int)
+
     for i, sample_size in enumerate(sample_sizes):
-        subset = df[df['num_samples'] == sample_size]
+        subset = smc_data[smc_data['num_samples'] == sample_size]
         grouped_data = subset.groupby('k')['time'].mean().reset_index()
         grouped_data = grouped_data.sort_values('k')
         plt.plot(grouped_data['k'], grouped_data['time'], linestyle='-', color=cmap(i),
                  linewidth=2, marker='o', markersize=5, label=f'num_samples={sample_size}')
+
+    # Plot data from Hudson with dashed horizontal lines
+    for i, sample_size in enumerate(sample_sizes):
+        subset = hudson_data[hudson_data['num_samples'] == sample_size]
+        plt.axhline(y=subset['time'].mean(), linestyle='--', color=cmap(i),
+            linewidth=2, label=f'Hudson (num_samples={sample_size})')
 
 
     # Set x-axis to log scale

@@ -32,7 +32,10 @@ def process_one_rep(params):
 
 def process_one_rep_vary_k(params):
     L, N, ns, k = params
-    model=msprime.SmcKApproxCoalescent(hull_offset=k)
+    if k == '''Hudson''':
+        model=msprime.StandardCoalescent()
+    else:
+        model=msprime.SmcKApproxCoalescent(hull_offset=k)
     h, n, t = run(L, N, ns, model)
     return [N, L, ns, k, h, n, t]
 
@@ -189,13 +192,17 @@ def run_varying_k_sims(k_range=[1, 5e8],samples_range=[10,1000], seq_len=5e8,
         f.write(csv(["N", "L", "num_samples", "k", "height", "num_trees", "time"]))
 
         all_tasks = []
-        for k in np.logspace(np.log10(k_range[0]), np.log10(k_range[1]), num=25):
-            k = int(k)
 
-            for samples in np.logspace(np.log10(samples_range[0]), np.log10(samples_range[1]), num=5):
-                samples = int(samples)
-                for _ in range(num_reps):
-                    all_tasks.append((seq_len, N, samples, k))
+        for samples in np.logspace(np.log10(samples_range[0]), np.log10(samples_range[1]), num=5):
+            samples = int(samples)
+            for k in np.logspace(np.log10(k_range[0]), np.log10(k_range[1]), num=25):
+                k = int(k)
+
+                '''for _ in range(num_reps):
+                    all_tasks.append((seq_len, N, samples, k))'''
+
+            for _ in range(num_reps):
+                all_tasks.append((seq_len, N, samples, 'Hudson')) # for standard coalescent
 
         with concurrent.futures.ProcessPoolExecutor(max_workers=16) as executor:
                 # Submit all tasks and get futures
