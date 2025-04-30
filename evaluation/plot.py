@@ -30,6 +30,7 @@ def two_panel_fig(**kwargs):
     ax2.set_title("(B)")
     return fig, (ax1, ax2)
 
+
 def two_panel_fig_single_col(**kwargs):
     width = 6
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(width, width / 2), **kwargs)
@@ -160,49 +161,53 @@ def ancestry_perf_plot(infile, outfile):
     save(outfile)
 
 
-
-
 def sequence_length_vs_time_combined(infile1, infile2, name1, name2, outfile):
     # Read the CSV files
     df1 = pd.read_csv(infile1)
     df2 = pd.read_csv(infile2)
 
-    # Verify that all population sizes (N) are the same within each dataset
+    # Verify that the population size (N) is constant and the same in both files
     if len(df1['N'].unique()) != 1 or len(df2['N'].unique()) != 1:
         raise ValueError("Population size (N) is not consistent within one or both datasets")
-
-    # Get the population sizes
     population_size1 = df1['N'].unique()[0]
     population_size2 = df2['N'].unique()[0]
+    if population_size1 != population_size2:
+        raise ValueError(f"Population size mismatch: {population_size1} != {population_size2}")
 
-    sample_size1 = df1['num_samples'].unique()[0]
-    sample_size2 = df2['num_samples'].unique()[0]
-    assert sample_size1 == sample_size2
+    # Get unique sample sizes from both datasets
+    sample_sizes1 = sorted(df1['num_samples'].unique())
+    sample_sizes2 = sorted(df2['num_samples'].unique())
 
-    # Check if population sizes are the same
-    assert population_size1 == population_size2
+    # Define a colormap for sample sizes
+    cmap = plt.cm.get_cmap("viridis", max(len(sample_sizes1), len(sample_sizes2)))
+
     # Create the plot
     plt.figure(figsize=(10, 6))
 
-    # Process first dataset
-    grouped_data1 = df1.groupby('L')['time'].mean().reset_index()
-    grouped_data1 = grouped_data1.sort_values('L')
-    plt.plot(grouped_data1['L'], grouped_data1['time'], 'r-', linewidth=2, marker='o',
-             markersize=5, label=f'{name1}')
+    # Plot data from infile1 with solid lines
+    for i, sample_size in enumerate(sample_sizes1):
+        subset = df1[df1['num_samples'] == sample_size]
+        grouped_data = subset.groupby('L')['time'].mean().reset_index()
+        grouped_data = grouped_data.sort_values('L')
+        plt.plot(grouped_data['L'], grouped_data['time'], linestyle='-', color=cmap(i),
+                 linewidth=2, marker='o', markersize=5, label=f'{name1} (num_samples={sample_size})')
 
-    # Process second dataset
-    grouped_data2 = df2.groupby('L')['time'].mean().reset_index()
-    grouped_data2 = grouped_data2.sort_values('L')
-    plt.plot(grouped_data2['L'], grouped_data2['time'], 'b-', linewidth=2, marker='o',
-             markersize=5, label=f'{name2}')
+    # Plot data from infile2 with dashed lines
+    for i, sample_size in enumerate(sample_sizes2):
+        subset = df2[df2['num_samples'] == sample_size]
+        grouped_data = subset.groupby('L')['time'].mean().reset_index()
+        grouped_data = grouped_data.sort_values('L')
+        plt.plot(grouped_data['L'], grouped_data['time'], linestyle='--', color=cmap(i),
+                 linewidth=2, marker='o', markersize=5, label=f'{name2} (num_samples={sample_size})')
 
     # Set x-axis to log scale
     plt.xscale('log')
+    plt.yscale('log')
 
     # Add labels and title
     plt.xlabel('Sequence Length (L)')
     plt.ylabel('Time (seconds)')
-    plt.title(f'Sequence Length vs Time: popsize: ({population_size1}), sample size: ({sample_size1})')
+    plt.title(f'Sequence Length vs Time: Population Size (N={population_size1})')
 
     # Add legend
     plt.legend()
@@ -215,9 +220,110 @@ def sequence_length_vs_time_combined(infile1, infile2, name1, name2, outfile):
     save(outfile)
     plt.close()
 
-# Example usage:
-# sequence_length_vs_time('data1.csv', 'data2.csv', 'Algorithm A', 'Algorithm B', 'comparison_plot.png')
+def sample_size_vs_time_combined(infile1, infile2, name1, name2, outfile):
+ # Read the CSV files
+    df1 = pd.read_csv(infile1)
+    df2 = pd.read_csv(infile2)
 
+    # Verify that all population sizes (N) are the same within each dataset
+    if len(df1['N'].unique()) != 1 or len(df2['N'].unique()) != 1:
+        raise ValueError("Population size (N) is not consistent within one or both datasets")
+
+    # Get the population sizes
+    population_size1 = df1['N'].unique()[0]
+    population_size2 = df2['N'].unique()[0]
+
+    seq_len1 = df1['L'].unique()[0]
+    seq_len2 = df2['L'].unique()[0]
+    assert seq_len1 == seq_len2
+    assert population_size1 == population_size2
+    # Create the plot
+    plt.figure(figsize=(10, 6))
+
+    # Process first dataset
+    grouped_data1 = df1.groupby('num_samples')['time'].mean().reset_index()
+    grouped_data1 = grouped_data1.sort_values('num_samples')
+    plt.plot(grouped_data1['num_samples'], grouped_data1['time'], 'r-', linewidth=2, marker='o',
+             markersize=5, label=f'{name1}')
+
+    # Process second dataset
+    grouped_data2 = df2.groupby('num_samples')['time'].mean().reset_index()
+    grouped_data2 = grouped_data2.sort_values('num_samples')
+    plt.plot(grouped_data2['num_samples'], grouped_data2['time'], 'b-', linewidth=2, marker='o',
+             markersize=5, label=f'{name2}')
+
+    # Set x-axis to log scale
+    plt.xscale('log')
+    plt.yscale('log')
+
+    # Add labels and title
+    plt.xlabel('number of samples')
+    plt.ylabel('Time (seconds)')
+    plt.title(f'num_samples vs Time: popsize: ({population_size1}), sequence length: ({seq_len1})')
+
+    # Add legend
+    plt.legend()
+
+    # Add grid for better readability
+    plt.grid(True, which="both", ls="--", alpha=0.3)
+
+    # Save the plot
+    plt.tight_layout()
+    save(outfile)
+    plt.close()
+
+@click.command()
+def k_vs_time(infile="data/ancestry-perf-varying-k.csv",
+        outfile="k-vs-time"):
+    # Read the CSV files
+    df = pd.read_csv(infile)
+
+    # Verify that the population size (N) is constant and the same in both files
+    if len(df['N'].unique()) != 1:
+        raise ValueError("Population size (N) is not consistent within the dataset")
+    population_size = df['N'].unique()[0]
+
+    if len(df['L'].unique()) != 1:
+        raise ValueError("sequence length (L) is not consistent within the dataset")
+    sequence_length = df['N'].unique()[0]
+
+    # Get unique sample sizes from both datasets
+    sample_sizes = sorted(df['num_samples'].unique())
+
+    # Define a colormap for sample sizes
+    cmap = plt.cm.get_cmap("viridis", len(sample_sizes))
+
+    # Create the plot
+    plt.figure(figsize=(10, 6))
+
+    # Plot data from infile1 with solid lines
+    for i, sample_size in enumerate(sample_sizes):
+        subset = df[df['num_samples'] == sample_size]
+        grouped_data = subset.groupby('k')['time'].mean().reset_index()
+        grouped_data = grouped_data.sort_values('k')
+        plt.plot(grouped_data['k'], grouped_data['time'], linestyle='-', color=cmap(i),
+                 linewidth=2, marker='o', markersize=5, label=f'num_samples={sample_size}')
+
+
+    # Set x-axis to log scale
+    plt.xscale('log')
+    plt.yscale('log')
+
+    # Add labels and title
+    plt.xlabel('k')
+    plt.ylabel('Time (seconds)')
+    plt.title(f'effect of K on time: Population Size (N={population_size}), Sequence Length (L={sequence_length})')
+
+    # Add legend
+    plt.legend()
+
+    # Add grid for better readability
+    plt.grid(True, which="both", ls="--", alpha=0.3)
+
+    # Save the plot
+    plt.tight_layout()
+    save(outfile)
+    plt.close()
 
 @click.command()
 def ancestry_perf_hudson():
@@ -239,17 +345,33 @@ def sequence_length_vs_time():
     Run the sequence length vs time benchmark.
     """
     sequence_length_vs_time_combined(
-        infile1="data/ancestry-perf-fixed-sample-size.csv",
-        infile2="data/ancestry-perf-fixed-sample-size-smc.csv",
+        infile1="data/ancestry-perf-varying-seq-len.csv",
+        infile2="data/ancestry-perf-varying-seq-len-smc.csv",
         name1="Hudson",
         name2="SMCK",
         outfile="sequence-length-vs-time",
+    )
+
+
+@click.command()
+def sample_size_vs_time():
+    """
+    Run the sample size vs time benchmark.
+    """
+    sample_size_vs_time_combined(
+        infile1="data/ancestry-perf-varying-sample-size.csv",
+        infile2="data/ancestry-perf-varying-sample-size-smc.csv",
+        name1="Hudson",
+        name2="SMCK",
+        outfile="sample-size-vs-time",
     )
 
 with matplotlib.rc_context({"font.size": 7}):
     cli.add_command(ancestry_perf_hudson)
     cli.add_command(ancestry_perf_smc)
     cli.add_command(sequence_length_vs_time)
+    cli.add_command(sample_size_vs_time)
+    cli.add_command(k_vs_time)
 
 if __name__ == "__main__":
     cli()

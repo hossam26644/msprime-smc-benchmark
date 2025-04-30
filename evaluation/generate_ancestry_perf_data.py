@@ -30,6 +30,12 @@ def process_one_rep(params):
     h, n, t = run(L, N, ns, model)
     return [N, L, ns, h, n, t]
 
+def process_one_rep_vary_k(params):
+    L, N, ns, k = params
+    model=msprime.SmcKApproxCoalescent(hull_offset=k)
+    h, n, t = run(L, N, ns, model)
+    return [N, L, ns, k, h, n, t]
+
 def run_sims_generic(outfile="data/ancestry-perf.csv",
              cpu_file="data/ancestry_perf_cpu.txt",
              model="hudson"):
@@ -89,8 +95,8 @@ def run_sims_smc():
     model=msprime.SmcKApproxCoalescent()
     run_sims_generic(outfile=outfile, cpu_file=cpu_file, model=model)
 
-def run_fixed_sample_size_sims_generic(seq_len_range=[10, 10e8],num_samples=10,
-    model="hudson", N=1000, R=1e-5, outfile="data/ancestry-perf-fixed-sample-size.csv"):
+def run_varying_seq_len_sims_generic(seq_len_range=[10, 10e9],samples_range=[10,1000],
+    model="hudson", N=1000, R=1e-7, outfile="data/ancestry-perf-varying-seq-len.csv"):
     # Run a single simulation with fixed sample size and varying sequence length
 
     num_reps = 3
@@ -99,8 +105,49 @@ def run_fixed_sample_size_sims_generic(seq_len_range=[10, 10e8],num_samples=10,
         f.write(csv(["N", "L", "num_samples", "height", "num_trees", "time"]))
 
         all_tasks = []
-        for seq_len in np.logspace(np.log10(seq_len_range[0]), np.log10(seq_len_range[1]), num=50):
+        for seq_len in np.logspace(np.log10(seq_len_range[0]), np.log10(seq_len_range[1]), num=20):
             seq_len = int(seq_len)
+            for samples in np.logspace(np.log10(samples_range[0]), np.log10(samples_range[1]), num=5):
+                samples = int(samples)
+                for _ in range(num_reps):
+                    all_tasks.append((seq_len, N, samples, model))
+
+        with concurrent.futures.ProcessPoolExecutor(max_workers=16) as executor:
+                # Submit all tasks and get futures
+                future_results = {executor.submit(process_one_rep, params): params for params in all_tasks}
+
+                # Process results as they complete
+                for future in concurrent.futures.as_completed(future_results):
+                    try:
+                        result = future.result()
+                        f.write(csv(result))
+                        f.flush()
+                    except Exception as exc:
+                        params = future_results[future]
+                        print(f"Task {params} generated an exception: {exc}")
+
+@click.command()
+def run_varying_seq_len_sims(outfile="data/ancestry-perf-varying-seq-len.csv", model="hudson"):
+    run_varying_seq_len_sims_generic(outfile=outfile, model=model)
+
+@click.command()
+def run_varying_seq_len_sims_smc():
+    outfile = "data/ancestry-perf-varying-seq-len-smc.csv"
+    model=msprime.SmcKApproxCoalescent()
+    run_varying_seq_len_sims_generic(outfile=outfile, model=model, seq_len_range=[10,10e9])
+
+def run_varying_sample_size_genric(seq_len=10e7,num_samples_range=[10,10000],
+    model="hudson", N=1000, R=1e-5, outfile="data/ancestry-perf-varying-seq-len.csv"):
+    # Run a single simulation with fixed sample size and varying sequence length
+
+    num_reps = 3
+
+    with open(outfile, "w") as f:
+        f.write(csv(["N", "L", "num_samples", "height", "num_trees", "time"]))
+
+        all_tasks = []
+        for num_samples in np.logspace(np.log10(num_samples_range[0]), np.log10(num_samples_range[1]), num=50):
+            num_samples = int(num_samples)
             for _ in range(num_reps):
                 all_tasks.append((seq_len, N, num_samples, model))
 
@@ -119,19 +166,64 @@ def run_fixed_sample_size_sims_generic(seq_len_range=[10, 10e8],num_samples=10,
                         print(f"Task {params} generated an exception: {exc}")
 
 @click.command()
-def run_fixed_sample_size_sims(outfile="data/ancestry-perf-fixed-sample-size.csv", model="hudson"):
-    run_fixed_sample_size_sims_generic(outfile=outfile, model=model)
+def run_varying_sample_size():
+    outfile = "data/ancestry-perf-varying-sample-size.csv"
+    model="hudson"
+    run_varying_sample_size_genric(outfile=outfile, model=model)
 
 @click.command()
-def run_fixed_sample_size_sims_smc():
-    outfile = "data/ancestry-perf-fixed-sample-size-smc.csv"
+def run_varying_sample_size_smc():
+    outfile = "data/ancestry-perf-varying-sample-size-smc.csv"
     model=msprime.SmcKApproxCoalescent()
-    run_fixed_sample_size_sims_generic(outfile=outfile, model=model)
+    run_varying_sample_size_genric(outfile=outfile, model=model)
+
+@click.command()
+def run_varying_k_sims(k_range=[1, 5e8],samples_range=[10,1000], seq_len=5e8,
+     N=1000, R=1e-7, outfile="data/ancestry-perf-varying-k.csv"):
+    # Run a single simulation with fixed sample size and varying sequence length
+
+
+    num_reps = 3
+
+    with open(outfile, "w") as f:
+        f.write(csv(["N", "L", "num_samples", "k", "height", "num_trees", "time"]))
+
+        all_tasks = []
+        for k in np.logspace(np.log10(k_range[0]), np.log10(k_range[1]), num=25):
+            k = int(k)
+
+            for samples in np.logspace(np.log10(samples_range[0]), np.log10(samples_range[1]), num=5):
+                samples = int(samples)
+                for _ in range(num_reps):
+                    all_tasks.append((seq_len, N, samples, k))
+
+        with concurrent.futures.ProcessPoolExecutor(max_workers=16) as executor:
+                # Submit all tasks and get futures
+                future_results = {executor.submit(process_one_rep_vary_k, params): params for params in all_tasks}
+
+                # Process results as they complete
+                for future in concurrent.futures.as_completed(future_results):
+                    try:
+                        result = future.result()
+                        f.write(csv(result))
+                        f.flush()
+                    except Exception as exc:
+                        params = future_results[future]
+                        print(f"Task {params} generated an exception: {exc}")
+
+@click.command()
+def run_for_perf():
+    run(10000, 1000000, 10000, msprime.SmcKApproxCoalescent())
 
 cli.add_command(run_sims)
 cli.add_command(run_sims_smc)
-cli.add_command(run_fixed_sample_size_sims)
-cli.add_command(run_fixed_sample_size_sims_smc)
+cli.add_command(run_varying_seq_len_sims)
+cli.add_command(run_varying_seq_len_sims_smc)
+cli.add_command(run_varying_sample_size)
+cli.add_command(run_varying_sample_size_smc)
+cli.add_command(run_varying_k_sims)
+cli.add_command(run_for_perf)
+
 
 if __name__ == "__main__":
     cli()
