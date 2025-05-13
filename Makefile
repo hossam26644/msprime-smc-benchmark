@@ -25,6 +25,21 @@ data-varying-seq:
 data-varying-k:
 	mkdir -p data
 	python3 evaluation/generate_ancestry_perf_data.py run-varying-k-sims
+data-hybrid:
+	mkdir -p data
+	python3 evaluation/generate_ancestry_perf_data.py run-hybrid-sims
+
+plot-hybrid:
+	mkdir -p figures
+	python3 evaluation/plot.py hybrid
+
+data-panels:
+	mkdir -p data
+	python3 evaluation/generate_ancestry_perf_data.py run-panels
+
+plot-panels:
+	mkdir -p figures
+	python3 evaluation/plot.py panels
 
 plot-fixed:
 	mkdir -p figures

@@ -11,13 +11,13 @@ import click
 def cli():
     pass
 
-def run(L, N, num_samples, model):
+def run(L, N, num_samples, r, model):
     start = time.process_time()
     ts = msprime.sim_ancestry(
             samples=num_samples,
             population_size=N,
             sequence_length=L,
-            recombination_rate=1e-8,
+            recombination_rate=r,
             model=model)
     end = time.process_time()
     return (max(ts.tables.nodes.time), ts.num_trees, end - start)
@@ -31,13 +31,19 @@ def process_one_rep(params):
     return [N, L, ns, h, n, t]
 
 def process_one_rep_vary_k(params):
-    L, N, ns, k = params
+    L, N, ns, r, k = params
     if k == '''Hudson''':
-        model=msprime.StandardCoalescent()
-    else:
+        model = msprime.StandardCoalescent()
+    elif type(k) == int:
         model=msprime.SmcKApproxCoalescent(hull_offset=k)
-    h, n, t = run(L, N, ns, model)
-    return [N, L, ns, k, h, n, t]
+    elif '''Hybrid''' in k:
+        duration = int(k.split('Hybrid')[-1])
+        model = [msprime.StandardCoalescent(duration=duration),
+                 msprime.SmcKApproxCoalescent()]
+    else:
+        raise ValueError("Unknown model")
+    h, n, t = run(L, N, ns, r, model)
+    return [N, L, r, ns, k, h, n, t]
 
 def run_sims_generic(outfile="data/ancestry-perf.csv",
              cpu_file="data/ancestry_perf_cpu.txt",
@@ -180,29 +186,34 @@ def run_varying_sample_size_smc():
     model=msprime.SmcKApproxCoalescent()
     run_varying_sample_size_genric(outfile=outfile, model=model)
 
-@click.command()
-def run_varying_k_sims(k_range=[1, 5e8],samples_range=[10,1000], seq_len=5e8,
-     N=1000, R=1e-7, outfile="data/ancestry-perf-varying-k.csv"):
+def run_varying_k_sims_inner(k_range=[1, 5e8],samples_range=[10,1000], seq_len=5e8,
+     N=1000, r=1e-7, outfile="data/ancestry-perf-varying-k.csv", ksamples=25, num_reps=3, file_write=True):
     # Run a single simulation with fixed sample size and varying sequence length
 
 
     num_reps = 3
 
-    with open(outfile, "w") as f:
-        f.write(csv(["N", "L", "num_samples", "k", "height", "num_trees", "time"]))
+    file_mode = "w" if file_write else "a"
+    with open(outfile, file_mode) as f:
+        if file_write:
+            f.write(csv(["N", "L", "r", "num_samples", "k", "height", "num_trees", "time"]))
 
         all_tasks = []
 
         for samples in np.logspace(np.log10(samples_range[0]), np.log10(samples_range[1]), num=5):
             samples = int(samples)
-            for k in np.logspace(np.log10(k_range[0]), np.log10(k_range[1]), num=25):
+            k_values = np.logspace(np.log10(k_range[0]), np.log10(k_range[1]), num=ksamples)
+
+            if k_values[0] == 1: k_values[0] = 0
+            for k in k_values:
+                # Your code here
                 k = int(k)
 
-                '''for _ in range(num_reps):
-                    all_tasks.append((seq_len, N, samples, k))'''
+                for _ in range(num_reps):
+                    all_tasks.append((seq_len, N, samples, r, k))
 
             for _ in range(num_reps):
-                all_tasks.append((seq_len, N, samples, 'Hudson')) # for standard coalescent
+                all_tasks.append((seq_len, N, samples, r, 'Hudson')) # for standard coalescent
 
         with concurrent.futures.ProcessPoolExecutor(max_workers=16) as executor:
                 # Submit all tasks and get futures
@@ -219,6 +230,76 @@ def run_varying_k_sims(k_range=[1, 5e8],samples_range=[10,1000], seq_len=5e8,
                         print(f"Task {params} generated an exception: {exc}")
 
 @click.command()
+def run_varying_k_sims():
+    # Run a single simulation with fixed sample size and varying sequence length
+    k_range=[1, 5e8]
+    samples_range=[10,1000]
+    seq_len=5e8
+    N=1000
+    R=1e-7
+    outfile="data/ancestry-perf-varying-k.csv"
+    ksamples=25
+    run_varying_k_sims_inner(k_range=k_range, samples_range=samples_range, seq_len=seq_len,
+        N=N, R=R, outfile=outfile, ksamples=ksamples)
+
+def run_hybrid_sims_inner(samples_range=[1,10000], seq_len=5e2,
+     N=1000, r=1e-5, gens_range=[10,100000], outfile="data/ancestry-perf-hybrid.csv", num_reps=3, file_write=False):
+
+
+    run_varying_k_sims_inner(samples_range=samples_range, seq_len=seq_len, outfile=outfile,
+        N=N, r=r, k_range=[1, 1], ksamples=1, num_reps=num_reps, file_write=False)
+
+    with open(outfile, "a") as f:
+        all_tasks = []
+
+        for samples in np.logspace(np.log10(samples_range[0]), np.log10(samples_range[1]), num=5):
+            samples = int(samples)
+            for gens in np.logspace(np.log10(gens_range[0]), np.log10(gens_range[1]), num=5):
+                gens = int(gens)
+                #print(gens)
+                for _ in range(num_reps):
+                    all_tasks.append((seq_len, N, samples, r, 'Hybrid' + str(gens)))
+
+        with concurrent.futures.ProcessPoolExecutor(max_workers=16) as executor:
+                # Submit all tasks and get futures
+                future_results = {executor.submit(process_one_rep_vary_k, params): params for params in all_tasks}
+
+                # Process results as they complete
+                for future in concurrent.futures.as_completed(future_results):
+                    try:
+                        result = future.result()
+                        f.write(csv(result))
+                        f.flush()
+                    except Exception as exc:
+                        params = future_results[future]
+                        print(f"Task {params} generated an exception: {exc}")
+
+@click.command()
+def run_hybrid_sims():
+    run_hybrid_sims_inner()
+
+@click.command()
+def run_panels():
+    samples_range=[1,10000]
+    num_reps=50
+    r=1e-9
+    seqlen_range=np.logspace(np.log10(10), np.log10(1e5), num=5)
+    pop_range=np.logspace(np.log10(1), np.log10(1e6), num=7)
+    file = "data/ancestry-perf-panels.csv"
+    #clear file
+    with open(file, "w") as f:
+            f.write(csv(["N", "L", "r", "num_samples", "k", "height", "num_trees", "time"]))
+
+    for L in seqlen_range:
+        for N in pop_range:
+            #if L==1e5 and N==10000.0: continue
+            #if L*N>1e8: continue
+            print(f"running simlution for N={N} and L={L}")
+            run_hybrid_sims_inner(samples_range=samples_range, seq_len=L, N=N, r=r,
+                gens_range=[10,100000], outfile="data/ancestry-perf-panels.csv", num_reps=num_reps, file_write=False)
+
+
+@click.command()
 def run_for_perf():
     run(10000, 1000000, 10000, msprime.SmcKApproxCoalescent())
 
@@ -229,6 +310,8 @@ cli.add_command(run_varying_seq_len_sims_smc)
 cli.add_command(run_varying_sample_size)
 cli.add_command(run_varying_sample_size_smc)
 cli.add_command(run_varying_k_sims)
+cli.add_command(run_hybrid_sims)
+cli.add_command(run_panels)
 cli.add_command(run_for_perf)
 
 

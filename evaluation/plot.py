@@ -9,6 +9,23 @@ plt.rcParams.update({"font.size": 7})
 plt.rcParams.update({"legend.fontsize": 6})
 plt.rcParams.update({"lines.markersize": 4})
 
+linestyle_tuple = [
+     ('loosely dotted',        (0, (1, 10))),
+     ('dotted',                (0, (1, 5))),
+     ('densely dotted',        (0, (1, 1))),
+
+     ('long dash with offset', (5, (10, 3))),
+     ('loosely dashed',        (0, (5, 10))),
+     ('dashed',                (0, (5, 5))),
+     ('densely dashed',        (0, (5, 1))),
+
+     ('loosely dashdotted',    (0, (3, 10, 1, 10))),
+     ('dashdotted',            (0, (3, 5, 1, 5))),
+     ('densely dashdotted',    (0, (3, 1, 1, 1))),
+
+     ('dashdotdotted',         (0, (3, 5, 1, 5, 1, 5))),
+     ('loosely dashdotdotted', (0, (3, 10, 1, 10, 1, 10))),
+     ('densely dashdotdotted', (0, (3, 1, 1, 1, 1, 1)))]
 
 @click.group()
 def cli():
@@ -335,6 +352,116 @@ def k_vs_time(infile="data/ancestry-perf-varying-k.csv",
     save(outfile)
     plt.close()
 
+def hybrid_inner(infile="data/ancestry-perf-hybrid.csv",
+        outfile="hybrid", df=None, givenax=None):
+    # Read the CSV files
+    if df is None: df = pd.read_csv(infile)
+
+    # Verify that the population size (N) is constant and the same in both files
+    if len(df['N'].unique()) != 1:
+        raise ValueError("Population size (N) is not consistent within the dataset")
+    population_size = df['N'].unique()[0]
+
+    if len(df['L'].unique()) != 1:
+        raise ValueError("sequence length (L) is not consistent within the dataset")
+    sequence_length = df['L'].unique()[0]
+
+    # Get unique sample sizes from both datasets
+    sample_sizes = sorted(df['num_samples'].unique())
+
+    # Define a colormap for sample sizes
+    #cmap = plt.cm.get_cmap("viridis", len(sample_sizes))
+    #cmap = matplotlib.cm.get_cmap("viridis", len(sample_sizes))
+    hudson_data = df[df['k'] == 'Hudson']
+
+    # Hybrid: k starts with 'Hybrid' or 'hybrid' (case-insensitive, if needed)
+    hybrid_data = df[df['k'].str.lower().str.startswith('hybrid')]
+
+    #smc_data = df[df['k'].str.match(r'^\d+$')]
+    #smc_data['k'] = smc_data['k'].astype(int)
+    smc_data = df[df['k']=='0']
+
+    hybrid_ks = hybrid_data['k'].unique()
+    group_names = ['Hudson', 'SMC'] + list(hybrid_ks)
+
+    sample_sizes = sorted(
+        set(hudson_data['num_samples']) |
+        set(smc_data['num_samples']) |
+        set(hybrid_data['num_samples'])
+    )
+    bar_width = 0.8 / len(group_names)  # To fit all bars neatly
+    x = np.arange(len(sample_sizes))
+    #cmap = plt.get_cmap('tab10')
+    cmap = matplotlib.colormaps.get_cmap('tab10')
+
+    # Prepare means: rows=groups, cols=sample_sizes
+    means = np.zeros((len(group_names), len(sample_sizes)))
+
+    for gi, group in enumerate(group_names):
+        for si, sample_size in enumerate(sample_sizes):
+            if group == 'Hudson':
+                val = hudson_data[hudson_data['num_samples'] == sample_size]['time'].mean()
+            elif group == 'SMC':
+                val = smc_data[smc_data['num_samples'] == sample_size]['time'].mean()
+            else:  # hybrid group
+                val = hybrid_data[
+          (hybrid_data['k'] == group) &
+                    (hybrid_data['num_samples'] == sample_size)
+                ]['time'].mean()
+            means[gi, si] = val
+
+    if givenax is None: fig, ax = plt.subplots(figsize=(12, 6))
+    else: ax = givenax
+
+    for gi, group in enumerate(group_names):
+        ax.bar(
+            x + gi*bar_width,
+            means[gi],
+            width=bar_width,
+            color=cmap(gi % 10),
+            label=group
+        )
+    ax.set_xticks(x + bar_width, sample_sizes)
+    ax.set_xticklabels(sample_sizes)
+    ax.set_xlabel('Sample Size')
+    ax.set_ylabel('Mean Time')
+    ax.set_title('Mean Coalescence Time by Sample Size and simulation method')
+    ax.set_yscale('log')
+    ax.grid(True, which="both", ls="--", alpha=0.3)
+    if givenax is None:
+
+        ax.legend()
+        plt.tight_layout()
+        save(outfile)
+        plt.close()
+
+@click.command()
+def hybrid():
+    hybrid_inner()
+
+
+@click.command()
+def panels(infile="data/ancestry-perf-panels.csv",
+        outfile="panels"):
+    df = pd.read_csv(infile)
+    Ns = sorted(df['N'].unique())
+    ls = sorted(df['L'].unique())
+    assert len(df['r'].unique())==1
+    r = df['r'].unique()[0]
+    fig, axes = plt.subplots(len(Ns), len(ls), figsize=(15, 10))
+    for i, N in enumerate(Ns):
+        for j, l in enumerate(ls):
+            subset = df[(df['N'] == N) & (df['L'] == l)]
+            if subset.empty: continue
+            ax = axes[i, j]
+            hybrid_inner(df=subset, givenax=ax)
+            ax.set_title(f"N={N}, L={l}")
+    fig.suptitle(f"simulations with r={r}", fontsize=16)
+    plt.tight_layout()
+    save(outfile)
+    plt.close()
+
+
 @click.command()
 def ancestry_perf_hudson():
     """
@@ -382,6 +509,8 @@ with matplotlib.rc_context({"font.size": 7}):
     cli.add_command(sequence_length_vs_time)
     cli.add_command(sample_size_vs_time)
     cli.add_command(k_vs_time)
+    cli.add_command(hybrid)
+    cli.add_command(panels)
 
 if __name__ == "__main__":
     cli()
